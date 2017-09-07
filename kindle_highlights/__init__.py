@@ -12,6 +12,7 @@ def main():
     action.triggered.connect(import_highlights)
     mw.form.menuTools.addAction(action)
 
+
 def import_highlights():
     path = getFile(mw, 'Open Kindle clippings', cb=None, filter='Text file (*.txt)', key='KindleHighlights')
 
@@ -62,20 +63,6 @@ def import_highlights():
 Clipping = namedtuple('Clipping', ('kind', 'document', 'page', 'location', 'added', 'content'))
 
 
-CLIPPING_PATTERN = r'''\ufeff?(?P<document>.*)
-- Your (?P<kind>.*) on (?:page (?P<page>.*) \| )?(?:Location (?P<location>.*) \| )?Added on (?P<added>.*)
-
-(?P<content>.*)
-?'''
-
-
-def parse_clipping(string):
-    match = re.fullmatch(CLIPPING_PATTERN, string)
-    if not match:
-        return None
-    return Clipping(**match.groupdict())
-
-
 def parse_clippings(file):
     clippings = []
     bad_clippings = []
@@ -102,14 +89,18 @@ def parse_clippings(file):
     return clippings, bad_clippings
 
 
-def SimpleImporter(NoteImporter):
-    def __init__(self, foreign_notes, model):
-        super().__init__(col=None, file=None)
-        self.model = model
-        self._foreign_notes = foreign_notes
+def parse_clipping(string):
+    match = re.fullmatch(CLIPPING_PATTERN, string)
+    if not match:
+        return None
+    return Clipping(**match.groupdict())
 
-    def foreignNotes(self):
-        return self._foreign_notes
+
+CLIPPING_PATTERN = r'''\ufeff?(?P<document>.*)
+- Your (?P<kind>.*) on (?:page (?P<page>.*) \| )?(?:Location (?P<location>.*) \| )?Added on (?P<added>.*)
+
+(?P<content>.*)
+?'''
 
 
 main()
