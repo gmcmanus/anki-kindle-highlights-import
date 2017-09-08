@@ -30,7 +30,7 @@ def import_highlights():
     highlight_clippings = list(highlights_only(clippings))
     clippings_to_add = after_last_added(highlight_clippings, last_added_datetime(config))
 
-    model = mw.col.models.byName('IR3')
+    model = mw.col.models.byName('Cloze')
 
     clipping = None
 
@@ -142,20 +142,15 @@ def fields(clipping, model):
     for field in mw.col.models.fieldNames(model):
         if field == 'Text':
             yield clipping.content
-        elif field == 'Title':
-            yield '{kind} from {document}{page}{location} added {added}'.format(
-                kind=clipping.kind,
+        elif field == 'Extra':
+            yield ''
+        elif field == 'Source':
+            yield 'Kindle {kind} from {document}{page}{location} added {added}'.format(
+                kind=clipping.kind.lower(),
                 document=clipping.document,
                 page=' page ' + clipping.page if clipping.page is not None else '',
                 location=' location ' + clipping.location if clipping.location is not None else '',
                 added=clipping.added,
-            )
-        elif field == 'Source':
-            yield '{kind} from {document}{page}{location}'.format(
-                kind=clipping.kind,
-                document=clipping.document,
-                page=' page ' + clipping.page if clipping.page is not None else '',
-                location=' location ' + clipping.location if clipping.location is not None else '',
             )
         else:
             raise ValueError('Unknown field: ' + field)
