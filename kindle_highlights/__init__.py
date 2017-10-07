@@ -30,7 +30,8 @@ def import_highlights():
     highlight_clippings = list(highlights_only(clippings))
     clippings_to_add = after_last_added(highlight_clippings, last_added_datetime(config))
 
-    model = mw.col.models.byName('Cloze')
+    model_name = config.get('model_name', DEFAULT_MODEL_NAME)
+    model = mw.col.models.byName(model_name)
 
     clipping = None
 
@@ -62,6 +63,9 @@ def import_highlights():
         showInfo('No other clippings found.')
     else:
         showInfo('No clippings found.')
+
+
+DEFAULT_MODEL_NAME = 'Cloze'
 
 
 Clipping = namedtuple('Clipping', ('kind', 'document', 'page', 'location', 'added', 'content'))
