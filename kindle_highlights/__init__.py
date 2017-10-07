@@ -128,7 +128,7 @@ def added_datetime(clipping):
 
 
 def last_added_datetime(config):
-    last_added_config = config['last_added']
+    last_added_config = config.get('last_added')
     return datetime.strptime(last_added_config, '%Y-%m-%dT%H:%M:%S') if last_added_config else None
 
 
