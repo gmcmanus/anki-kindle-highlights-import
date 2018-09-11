@@ -2,6 +2,8 @@ from datetime import datetime
 import re
 from collections import namedtuple
 
+from bs4 import BeautifulSoup
+
 from anki.notes import Note
 from aqt import mw
 from aqt.utils import getFile, showInfo, showText
@@ -15,10 +17,17 @@ def main():
 
 
 def import_highlights():
-    path = getFile(mw, 'Open Kindle clippings', cb=None, filter='Text file (*.txt)', key='KindleHighlights')
+    path = getFile(mw, 'Open Kindle clippings', cb=None, filter='Clippings file (*.txt *.html)', key='KindleHighlights')
 
     with open(path, encoding='utf-8') as file:
-        clippings, bad_clippings = parse_clippings(file)
+        lower_path = path.lower()
+        if lower_path.endswith('txt'):
+            clippings, bad_clippings = parse_text_clippings(file)
+        elif lower_path.endswith('html'):
+            clippings = list(parse_html_clippings(file))
+            bad_clippings = []
+        else:
+            raise RuntimeError(f'Unknown extension in path: {path!r}')
 
     if bad_clippings:
         showText(
@@ -33,15 +42,18 @@ def import_highlights():
     model_name = config.get('model_name', DEFAULT_MODEL_NAME)
     model = mw.col.models.byName(model_name)
 
-    clipping = None
+    last_added = None
 
     for clipping in clippings_to_add:
         note = Note(mw.col, model)
         note.fields = list(fields(clipping, model))
         mw.col.addNote(note)
 
-    if clipping:
-        config['last_added'] = added_datetime(clipping).isoformat()
+        if clipping.added:
+            last_added = clipping.added
+
+    if last_added:
+        config['last_added'] = parse_clipping_added(last_added).isoformat()
         mw.addonManager.writeConfig(__name__, config)
 
     def info():
@@ -71,7 +83,7 @@ DEFAULT_MODEL_NAME = 'Cloze'
 Clipping = namedtuple('Clipping', ('kind', 'document', 'page', 'location', 'added', 'content'))
 
 
-def parse_clippings(file):
+def parse_text_clippings(file):
     clippings = []
     bad_clippings = []
 
@@ -84,7 +96,7 @@ def parse_clippings(file):
         string = ''.join(current_clipping_lines)
         current_clipping_lines.clear()
 
-        clipping = parse_clipping(string)
+        clipping = parse_text_clipping(string)
 
         if clipping:
             clippings.append(clipping)
@@ -97,7 +109,7 @@ def parse_clippings(file):
     return clippings, bad_clippings
 
 
-def parse_clipping(string):
+def parse_text_clipping(string):
     match = re.fullmatch(CLIPPING_PATTERN, string)
     if not match:
         return None
@@ -111,15 +123,74 @@ CLIPPING_PATTERN = r'''\ufeff?(?P<document>.*)
 ?'''
 
 
+def parse_html_clippings(file):
+    soup = BeautifulSoup(file, 'html.parser')
+
+    title = None
+    authors = None
+    section = None
+    location = None
+
+    for paragraph in soup.find_all(class_=True):
+        classes = paragraph['class']
+        text = paragraph.get_text().strip()
+
+        if 'bookTitle' in classes:
+            title = text
+
+        if  'authors' in classes:
+            authors = text
+
+        if 'sectionHeading' in classes:
+            section = text
+
+        if 'noteHeading' in classes:
+            match = re.fullmatch(NOTE_HEADING_PATTERN, text)
+            if not match:
+                kind = None
+                location = None
+            else:
+                kind = match['kind'].strip()
+                location = match['location'].strip()
+
+        if 'noteText' in classes:
+            content = text
+        else:
+            continue
+
+        if title and authors:
+            document = f'{title} ({authors})'
+        elif title:
+            document = title
+        elif authors:
+            document = authors
+
+        if section:
+            document += ' ' + section + ','
+
+        yield Clipping(
+            kind=kind,
+            document=document,
+            page=None,
+            location=location,
+            added=None,
+            content=content,
+        )
+
+
+NOTE_HEADING_PATTERN = r'''(?P<kind>.*)\s*-\s*Location\s*(?P<location>.*)'''
+
+
 def after_last_added(clippings, last_added):
     if not last_added:
         return clippings
 
     def reversed_clippings_after_last_added():
         for clipping in reversed(clippings):
-            clipping_added = added_datetime(clipping)
-            if clipping_added <= last_added:
-                return
+            if clipping.added:
+                clipping_added = parse_clipping_added(clipping.added)
+                if clipping_added and clipping_added <= last_added:
+                    return
             yield clipping
 
     clippings_after_last_added = list(reversed_clippings_after_last_added())
@@ -127,8 +198,8 @@ def after_last_added(clippings, last_added):
     return clippings_after_last_added
 
 
-def added_datetime(clipping):
-    return datetime.strptime(clipping.added, '%A, %B %d, %Y %I:%M:%S %p')
+def parse_clipping_added(clipping_added):
+    return datetime.strptime(clipping_added, '%A, %B %d, %Y %I:%M:%S %p')
 
 
 def last_added_datetime(config):
@@ -138,23 +209,23 @@ def last_added_datetime(config):
 
 def highlights_only(clippings):
     for clipping in clippings:
-        if clipping.kind == 'Highlight':
+        if 'highlight' in clipping.kind.lower():
             yield clipping
 
 
 def fields(clipping, model):
     for field in mw.col.models.fieldNames(model):
         if field == 'Text':
-            yield clipping.content
+            yield clipping.content.strip()
         elif field == 'Extra':
             yield ''
         elif field == 'Source':
-            yield 'Kindle {kind} from {document}{page}{location} added {added}'.format(
+            yield 'Kindle {kind} from {document}{page}{location}{added}'.format(
                 kind=clipping.kind.lower(),
                 document=clipping.document,
                 page=' page ' + clipping.page if clipping.page is not None else '',
                 location=' location ' + clipping.location if clipping.location is not None else '',
-                added=clipping.added,
+                added=' added ' + clipping.added if clipping.added is not None else '',
             )
         else:
             raise ValueError('Unknown field: ' + field)
