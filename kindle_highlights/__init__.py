@@ -24,8 +24,7 @@ def import_highlights():
         if lower_path.endswith('txt'):
             clippings, bad_clippings = parse_text_clippings(file)
         elif lower_path.endswith('html'):
-            clippings = list(parse_html_clippings(file))
-            bad_clippings = []
+            clippings, bad_clippings = parse_html_clippings(file)
         else:
             raise RuntimeError(f'Unknown extension in path: {path!r}')
 
@@ -124,11 +123,16 @@ CLIPPING_PATTERN = r'''\ufeff?(?P<document>.*)
 
 
 def parse_html_clippings(file):
+    clippings = []
+    bad_clippings = []
+
     soup = BeautifulSoup(file, 'html.parser')
 
     title = None
     authors = None
     section = None
+    kind = None
+    subsection = None
     location = None
 
     for paragraph in soup.find_all(class_=True):
@@ -147,15 +151,25 @@ def parse_html_clippings(file):
         if 'noteHeading' in classes:
             match = re.fullmatch(NOTE_HEADING_PATTERN, text)
             if not match:
+                bad_clippings.append(text)
                 kind = None
                 location = None
+                subsection = None
             else:
                 kind = match['kind'].strip()
                 location = match['location'].strip()
+                if match['subsection']:
+                    subsection = match['subsection'].strip()
+                else:
+                    subsection = None
 
         if 'noteText' in classes:
             content = text
         else:
+            continue
+
+        if not kind or not location:
+            bad_clippings.append(text)
             continue
 
         if title and authors:
@@ -168,17 +182,22 @@ def parse_html_clippings(file):
         if section:
             document += ' ' + section + ','
 
-        yield Clipping(
+        if subsection:
+            document += ' ' + subsection + ','
+
+        clippings.append(Clipping(
             kind=kind,
             document=document,
             page=None,
             location=location,
             added=None,
             content=content,
-        )
+        ))
+
+    return clippings, bad_clippings
 
 
-NOTE_HEADING_PATTERN = r'''(?P<kind>.*)\s*-\s*Location\s*(?P<location>.*)'''
+NOTE_HEADING_PATTERN = r'(?P<kind>.*)\s*-\s*(?:(?P<subsection>.*)\s*>\s*)?Location\s*(?P<location>.*)'
 
 
 def after_last_added(clippings, last_added):
