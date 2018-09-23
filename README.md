@@ -3,9 +3,14 @@
 Anki add-on for importing Kindle highlights.
 
 
+## Installation
+
+You can install the add-on from [AnkiWeb](https://ankiweb.net/shared/info/1525149970).
+
+
 ## Usage
 
-Install the add-on, then choose "Import Kindle highlights..." from the "Tools" menu.
+Choose "Import Kindle highlights..." from the "Tools" menu.
 Then select a file to import:
 * You can import the "My Clippings.txt" that is stored on the Kindle device
 * You can import HTML files as exported from the Kindle mobile app
