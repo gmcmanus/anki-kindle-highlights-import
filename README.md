@@ -14,4 +14,4 @@ Then select a file to import:
 ## Configuration
 
 You can configure the add-on by choosing "Add-ons" from the "Tools" menu,
-selecting "kindle_highlights_import" and then clicking the "Config" button.
+selecting the add-on and then clicking the "Config" button.
