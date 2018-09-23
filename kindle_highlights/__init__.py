@@ -38,14 +38,13 @@ def import_highlights():
     highlight_clippings = list(highlights_only(clippings))
     clippings_to_add = after_last_added(highlight_clippings, last_added_datetime(config))
 
-    model_name = config.get('model_name', DEFAULT_MODEL_NAME)
-    model = mw.col.models.byName(model_name)
+    model = mw.col.models.byName(config['model_name'])
 
     last_added = None
 
     for clipping in clippings_to_add:
         note = Note(mw.col, model)
-        note.fields = list(fields(clipping, model))
+        note.fields = list(fields(clipping, model, config))
         mw.col.addNote(note)
 
         if clipping.added:
@@ -74,9 +73,6 @@ def import_highlights():
         showInfo('No other clippings found.')
     else:
         showInfo('No clippings found.')
-
-
-DEFAULT_MODEL_NAME = 'Cloze'
 
 
 Clipping = namedtuple('Clipping', ('kind', 'document', 'page', 'location', 'added', 'content'))
@@ -222,7 +218,7 @@ def parse_clipping_added(clipping_added):
 
 
 def last_added_datetime(config):
-    last_added_config = config.get('last_added')
+    last_added_config = config['last_added']
     return datetime.strptime(last_added_config, '%Y-%m-%dT%H:%M:%S') if last_added_config else None
 
 
@@ -232,13 +228,15 @@ def highlights_only(clippings):
             yield clipping
 
 
-def fields(clipping, model):
+def fields(clipping, model, config):
+    content_yielded = False
+    source_yielded = False
+
     for field in mw.col.models.fieldNames(model):
-        if field == 'Text':
+        if field == config['content_field']:
             yield clipping.content.strip()
-        elif field == 'Extra':
-            yield ''
-        elif field == 'Source':
+            content_yielded = True
+        elif field == config['source_field']:
             yield 'Kindle {kind} from {document}{page}{location}{added}'.format(
                 kind=clipping.kind.lower(),
                 document=clipping.document,
@@ -246,8 +244,12 @@ def fields(clipping, model):
                 location=' location ' + clipping.location if clipping.location is not None else '',
                 added=' added ' + clipping.added if clipping.added is not None else '',
             )
+            source_yielded = True
         else:
-            raise ValueError('Unknown field: ' + field)
+            yield ''
+
+    if not (content_yielded and source_yielded):
+        raise ValueError('Could not find content and/or source fields in model.')
 
 
 main()

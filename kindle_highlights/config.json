@@ -1,4 +1,6 @@
 {
     "model_name": "Cloze",
+    "content_field": "Text",
+    "source_field": "Extra",
     "last_added": null
 }
