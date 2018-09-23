@@ -11,7 +11,7 @@ from aqt.qt import QAction
 
 
 def main():
-    action = QAction('Import Kindle highlights', mw)
+    action = QAction('Import Kindle highlights...', mw)
     action.triggered.connect(import_highlights)
     mw.form.menuTools.addAction(action)
 
