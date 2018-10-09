@@ -5,6 +5,7 @@ from collections import namedtuple
 from bs4 import BeautifulSoup
 
 from anki.notes import Note
+from anki.utils import splitFields, stripHTMLMedia
 from aqt import mw
 from aqt.utils import getFile, showInfo, showText
 from aqt.qt import QAction
@@ -38,25 +39,28 @@ def import_highlights():
     highlight_clippings = list(highlights_only(clippings))
     clippings_to_add = after_last_added(highlight_clippings, last_added_datetime(config))
 
-    model = mw.col.models.byName(config['model_name'])
-
+    num_added = 0
     last_added = None
 
+    note_adder = NoteAdder(mw.col, config)
     for clipping in clippings_to_add:
-        note = Note(mw.col, model)
-        note.fields = list(fields(clipping, model, config))
-        mw.col.addNote(note)
-
-        if clipping.added:
-            last_added = clipping.added
+        note_was_added = note_adder.try_add(clipping)
+        if note_was_added:
+            num_added += 1
+            if clipping.added:
+                last_added = clipping.added
 
     if last_added:
         config['last_added'] = parse_clipping_added(last_added).isoformat()
         mw.addonManager.writeConfig(__name__, config)
 
     def info():
-        if clippings_to_add:
-            yield f'{len(clippings_to_add)} new highlights imported'
+        if num_added:
+            yield f'{num_added} new highlights imported'
+
+        num_duplicates = len(clippings_to_add) - num_added
+        if num_duplicates:
+            yield f'{num_duplicates} duplicate highlights ignored'
 
         num_old_highlights = len(highlight_clippings) - len(clippings_to_add)
         if num_old_highlights:
@@ -228,28 +232,70 @@ def highlights_only(clippings):
             yield clipping
 
 
-def fields(clipping, model, config):
-    content_yielded = False
-    source_yielded = False
+class NoteAdder:
+    def __init__(self, collection, config):
+        self.collection = collection
+        self.model = self.collection.models.byName(config['model_name'])
+        self._find_field_indexes(config)
 
-    for field in mw.col.models.fieldNames(model):
-        if field == config['content_field']:
-            yield clipping.content.strip()
-            content_yielded = True
-        elif field == config['source_field']:
-            yield 'Kindle {kind} from {document}{page}{location}{added}'.format(
-                kind=clipping.kind.lower(),
-                document=clipping.document,
-                page=' page ' + clipping.page if clipping.page is not None else '',
-                location=' location ' + clipping.location if clipping.location is not None else '',
-                added=' added ' + clipping.added if clipping.added is not None else '',
-            )
-            source_yielded = True
-        else:
-            yield ''
+        note_fields = self.collection.db.all(
+                'select flds from notes where mid = ?', self.model['id'])
+        self.present_normalized_contents = {
+            normalized_content(splitFields(fields)[self.content_field_index])
+            for fields, in note_fields
+        }
 
-    if not (content_yielded and source_yielded):
-        raise ValueError('Could not find content and/or source fields in model.')
+    def _find_field_indexes(self, config):
+        self.content_field_index = None
+        self.source_field_index = None
+
+        for index, field in enumerate(self.collection.models.fieldNames(self.model)):
+            if field == config['content_field']:
+                self.content_field_index = index
+            elif field == config['source_field']:
+                self.source_field_index = index
+
+        if self.content_field_index is None or self.source_field_index is None:
+            raise ValueError('Could not find content and/or source fields in model.')
+
+    def try_add(self, clipping):
+        normalized_note_content = normalized_content(note_content(clipping))
+        if normalized_note_content in self.present_normalized_contents:
+            return False
+
+        note = self._note(clipping)
+
+        self.collection.addNote(note)
+
+        card_ids = [card.id for card in note.cards()]
+        self.collection.sched.suspendCards(card_ids)
+
+        self.present_normalized_contents.add(normalized_note_content)
+
+        return True
+
+    def _note(self, clipping):
+        note = Note(self.collection, self.model)
+        note.fields[self.content_field_index] = note_content(clipping)
+        note.fields[self.source_field_index] = note_source(clipping)
+        return note
+
+
+def normalized_content(content):
+    return stripHTMLMedia(content).strip()
+
+
+def note_content(clipping):
+    return clipping.content.strip()
+
+
+def note_source(clipping):
+    kind = clipping.kind.lower()
+    document = clipping.document
+    page = ' page ' + clipping.page if clipping.page is not None else ''
+    location = ' location ' + clipping.location if clipping.location is not None else ''
+    added = ' added ' + clipping.added if clipping.added is not None else ''
+    return f'Kindle {kind} from {document}{page}{location}{added}'
 
 
 main()
