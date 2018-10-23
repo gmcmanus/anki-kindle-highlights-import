@@ -20,6 +20,9 @@ def main():
 def import_highlights():
     path = getFile(mw, 'Open Kindle clippings', cb=None, filter='Clippings file (*.txt *.html)', key='KindleHighlights')
 
+    if not path:
+        return
+
     with open(path, encoding='utf-8') as file:
         lower_path = path.lower()
         if lower_path.endswith('txt'):
