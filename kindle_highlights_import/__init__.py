@@ -1,14 +1,16 @@
-from datetime import datetime
+import json
+import os
 import re
 from collections import namedtuple
+from datetime import datetime
 
 from bs4 import BeautifulSoup
 
 from anki.notes import Note
 from anki.utils import splitFields, stripHTMLMedia
 from aqt import mw
-from aqt.utils import getFile, showInfo, showText
 from aqt.qt import QAction
+from aqt.utils import getFile, showInfo, showText
 
 
 def main():
@@ -45,13 +47,27 @@ def import_highlights():
     num_added = 0
     last_added = None
 
-    note_adder = NoteAdder(mw.col, config)
+    user_files_path = os.path.join(mw.addonManager.addonsFolder(__name__), 'user_files')
+    os.makedirs(user_files_path, exist_ok=True)
+
+    added_highlights_path = os.path.join(user_files_path, 'added_highlights.json')
+
+    if os.path.isfile(added_highlights_path):
+        with open(added_highlights_path, encoding='utf-8') as added_highlights_file:
+            added_highlights = json.load(added_highlights_file)
+    else:
+        added_highlights = []
+
+    note_adder = NoteAdder(mw.col, config, added_highlights)
     for clipping in clippings_to_add:
         note_was_added = note_adder.try_add(clipping)
         if note_was_added:
             num_added += 1
             if clipping.added:
                 last_added = clipping.added
+
+    with open(added_highlights_path, encoding='utf-8', mode='w') as added_highlights_file:
+        json.dump(list(note_adder.added_normalized_contents), added_highlights_file)
 
     if last_added:
         config['last_added'] = parse_clipping_added(last_added).isoformat()
@@ -236,16 +252,18 @@ def highlights_only(clippings):
 
 
 class NoteAdder:
-    def __init__(self, collection, config):
+    def __init__(self, collection, config, added_contents):
         self.collection = collection
         self.model = self.collection.models.byName(config['model_name'])
         self._find_field_indexes(config)
 
-        note_fields = self.collection.db.all(
+        self.added_normalized_contents = set(map(normalized_content, added_contents))
+
+        note_fields = self.collection.db.list(
                 'select flds from notes where mid = ?', self.model['id'])
         self.present_normalized_contents = {
             normalized_content(splitFields(fields)[self.content_field_index])
-            for fields, in note_fields
+            for fields in note_fields
         }
 
     def _find_field_indexes(self, config):
@@ -263,7 +281,8 @@ class NoteAdder:
 
     def try_add(self, clipping):
         normalized_note_content = normalized_content(note_content(clipping))
-        if normalized_note_content in self.present_normalized_contents:
+        if (normalized_note_content in self.added_normalized_contents or
+                normalized_note_content in self.present_normalized_contents):
             return False
 
         note = self._note(clipping)
@@ -273,7 +292,7 @@ class NoteAdder:
         card_ids = [card.id for card in note.cards()]
         self.collection.sched.suspendCards(card_ids)
 
-        self.present_normalized_contents.add(normalized_note_content)
+        self.added_normalized_contents.add(normalized_note_content)
 
         return True
 
